@@ -5,6 +5,7 @@ from OpenGL.GL import *
 from OpenGL.GL.shaders import *
 from OpenGL.GLU import *
 from PIL import Image
+from numba import jit, cuda
 import glob
 import numpy as np
 import sys
@@ -22,17 +23,11 @@ class opengl_view_widget(QOpenGLWidget):
         self.file_list = glob.glob(file_directory+"/*.jpg")
         self.slice_number = len(self.file_list)
         self.xrot, self.yrot, self.zrot, self.zoom_out = 0.0, 0.0, 0.0, 1.0
-        
-    def perspective_background(self, img):
-        width, height = img.width, img.height
-        img_data = np.array(img.convert("RGBA"), dtype=np.uint8)
-        
-        for x in range(0, width):
-            for y in range(0, height):
-                r, g, b = img_data[x][y][0], img_data[x][y][1], img_data[x][y][2]
-                if r <= 10 and g <= 10 and b <= 10:
-                    img_data[x][y][3] = 0
-        return img_data
+
+    def CUDA_Init(self, img_np):
+        self.threads_per_block = (16, 16)
+        self.blocks_per_grid_x = (img_np.shape[0] + self.threads_per_block[0] - 1) // self.threads_per_block[0]
+        self.blocks_per_grid_y = (img_np.shape[1] + self.threads_per_block[1] - 1) // self.threads_per_block[1]
 
     def initializeGL(self):
         self.texture_names = np.zeros(self.slice_number, dtype=np.uint32)
@@ -48,8 +43,12 @@ class opengl_view_widget(QOpenGLWidget):
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
             img = Image.open(self.file_list[idx])
-            img_data = self.perspective_background(img)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height , 0, GL_RGBA, GL_UNSIGNED_BYTE, img_data);
+            img_np = np.array(img.convert("RGBA"), dtype=np.uint8)
+            self.CUDA_Init(img_np)
+            d_img = cuda.to_device(img_np)
+            self.perspective_background[(self.blocks_per_grid_x, self.blocks_per_grid_y), self.threads_per_block](d_img)
+            result_img_np = d_img.copy_to_host()
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img.width, img.height , 0, GL_RGBA, GL_UNSIGNED_BYTE, result_img_np);
             glBindTexture(GL_TEXTURE_2D, 0)
             
     def resizeGL(self, w, h):
@@ -81,16 +80,12 @@ class opengl_view_widget(QOpenGLWidget):
             glBegin( GL_QUADS );
             glTexCoord2f(0.0,0.0);
             glVertex3f(-1.0,-1.0,-idx/(self.slice_number*1.05));
-            #glVertex3f(-1.0,-1.0,(self.slice_number*1.1)/2-idx/(self.slice_number*1.1));
             glTexCoord2f(1.0,0.0);
             glVertex3f(1.0,-1.0,-idx/(self.slice_number*1.05));
-            #glVertex3f(1.0,-1.0,(self.slice_number*1.1)/2-idx/(self.slice_number*1.1));
             glTexCoord2f(1.0,1.0); 
             glVertex3f(1.0,1.0,-idx/(self.slice_number*1.05));
-            #glVertex3f(1.0,1.0,(self.slice_number*1.1)/2-idx/(self.slice_number*1.1));
             glTexCoord2f(0.0,1.0); 
             glVertex3f(-1.0,1.0,-idx/(self.slice_number*1.05));
-            #glVertex3f(-1.0,1.0,(self.slice_number*1.1)/2-idx/(self.slice_number*1.1));
             glEnd();
         glFlush();
     
@@ -111,3 +106,14 @@ class opengl_view_widget(QOpenGLWidget):
             else:
                 self.yrot += 1.0
         self.update()
+    
+    @staticmethod
+    @cuda.jit
+    def perspective_background(img_np):
+        width, height = img_np.shape[0], img_np.shape[1]
+        x, y = cuda.grid(2)
+        for x in range(0, width):
+            for y in range(0, height):
+                r, g, b = img_np[x][y][0], img_np[x][y][1], img_np[x][y][2]
+                if r <= 10 and g <= 10 and b <= 10:
+                    img_np[x][y][3] = 0
