@@ -23,10 +23,13 @@
 ## 🧑‍💻 How to Use
 
 1. Clone this repository:
+
     git clone https://github.com/raind-dev/3DBrainViewer.git
+
     cd 3DBrainViewer
 
 2. Run the application:
+
     python main.py
 
 3. In the main window:
