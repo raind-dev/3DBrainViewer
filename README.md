@@ -2,7 +2,7 @@
 
 **3D Brain Viewer** is an interactive application built for medical image analysis and visualization. It allows users to input DICOM files and step through various image processing stages, ultimately reconstructing a 3D model of the patient's brain.
 
-![3D Brain Visualization](./3D Brain Viewer GUI.jpg)
+![3D Brain Visualization](https://github.com/raind-dev/3DBrainViewer/blob/main/3D%20Brain%20Viewer%20GUI.jpg)
 
 ## 🚀 Features
 
